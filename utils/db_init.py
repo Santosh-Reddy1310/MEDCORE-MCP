@@ -54,8 +54,21 @@ def initialize_database(populate=True):
     print("⚡ Initializing database...")
     
     try:
-        # Import and run the setup script
-        from db.setup_db import create_tables, insert_sample_data
+        # Import available setup functions from db.setup_db.
+        from db.setup_db import create_tables
+        try:
+            from db.setup_db import insert_sample_data  # Backward-compatible path
+        except ImportError:
+            insert_sample_data = None
+
+        # Newer setup_db.py exposes individual seed functions instead.
+        from db.setup_db import (
+            seed_doctors,
+            seed_patients,
+            seed_beds,
+            seed_appointments,
+            seed_hospital_stats,
+        )
         
         conn = sqlite3.connect(DB_PATH)
         
@@ -65,7 +78,14 @@ def initialize_database(populate=True):
         
         # Insert sample data if requested
         if populate:
-            insert_sample_data(conn)
+            if insert_sample_data is not None:
+                insert_sample_data(conn)
+            else:
+                seed_doctors(conn)
+                seed_patients(conn)
+                seed_beds(conn)
+                seed_appointments(conn)
+                seed_hospital_stats(conn)
             print("✓ Populated sample data")
         
         conn.commit()
