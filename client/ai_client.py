@@ -27,6 +27,8 @@ OPENROUTER_DEFAULT_MODELS = [
     "google/gemma-3-27b-it",
 ]
 
+FREE_TIER_ONLY = os.getenv("FREE_TIER_ONLY", "true").strip().lower() in ("1", "true", "yes", "on")
+
 # ── Per-key sliding-window rate limiter ───────────────────────────────────────
 # Groq free tier: 30 req/min, 14,400 req/day
 # We stay under by rotating keys when a key has used >= GROQ_RPM_LIMIT - 2 in
@@ -103,6 +105,45 @@ def _parse_csv_env(var_name, default=None):
     return values if values else list(default or [])
 
 
+def _filter_openrouter_models(models: list[str]) -> list[str]:
+    """Keep OpenRouter models aligned with a free-tier-only setup."""
+    models = list(dict.fromkeys(models))
+    if not FREE_TIER_ONLY:
+        return models
+
+    allowlist = set(_parse_csv_env("OPENROUTER_FREE_MODEL_ALLOWLIST", OPENROUTER_DEFAULT_MODELS))
+    paid_hints = (
+        "openai/gpt",
+        "anthropic/",
+        "claude",
+        "inception/",
+        "/pro",
+    )
+    likely_free_prefixes = (
+        "qwen/",
+        "meta-llama/",
+        "google/gemma",
+        "mistralai/",
+        "deepseek/",
+    )
+
+    filtered = []
+    for model in models:
+        model_l = model.lower().strip()
+        if model in allowlist:
+            filtered.append(model)
+            continue
+        if any(hint in model_l for hint in paid_hints):
+            continue
+        if any(model_l.startswith(prefix) for prefix in likely_free_prefixes):
+            filtered.append(model)
+
+    if not filtered:
+        filtered = list(OPENROUTER_DEFAULT_MODELS)
+
+    return list(dict.fromkeys(filtered))
+
+
 def _collect_keys(single_var, csv_var, prefix):
     """Collect API keys from single, CSV, and indexed env vars."""
     keys = []
@@ -143,7 +184,9 @@ def get_configured_providers() -> list[dict]:
             "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         })
 
-    openrouter_models = _parse_csv_env("OPENROUTER_MODELS", OPENROUTER_DEFAULT_MODELS)
+    openrouter_models = _filter_openrouter_models(
+        _parse_csv_env("OPENROUTER_MODELS", OPENROUTER_DEFAULT_MODELS)
+    )
     openrouter_keys = _collect_keys("OPENROUTER_API_KEY", "OPENROUTER_API_KEYS", "OPENROUTER_API_KEY_")
     base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     for m_idx, model in enumerate(openrouter_models, 1):
@@ -479,7 +522,7 @@ async def ask_hospital_ai(query: str, history: list = None, retry_count: int = 0
                 "The system will automatically wait and retry on your next message.\n\n"
                 "**To avoid this permanently:**\n"
                 "- Add more Groq keys: `GROQ_API_KEY_3 = gsk_...` in `.env.local`\n"
-                "- Or add OpenRouter credits at https://openrouter.ai/settings/credits"
+                "- Keep `FREE_TIER_ONLY=true` and use free OpenRouter models only"
             )
 
         if retry_count < MCP_MAX_RETRIES:
