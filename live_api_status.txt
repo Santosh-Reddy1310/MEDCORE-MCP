@@ -1,0 +1,15 @@
+==========================================================================================
+Live API Status Check | Providers to test: 10
+==========================================================================================
+OK         | groq-1         | llama-3.3-70b-versatile                       | OK
+OK         | groq-2         | llama-3.3-70b-versatile                       | OK
+RATE_LIMIT | gemini-1       | gemini-2.0-flash                              | Rate limit hit on gemini-1: Rate limit hit on gemi
+RATE_LIMIT | gemini-2       | gemini-2.0-flash                              | Rate limit hit on gemini-2: Rate limit hit on gemi
+ERROR      | openrouter-1-1 | qwen/qwen3.5-9b                               | HTTPStatusError: Client error '402 Payment Required' for url 'https
+ERROR      | openrouter-2-1 | openai/gpt-5.4-pro                            | HTTPStatusError: Client error '402 Payment Required' for url 'https
+ERROR      | openrouter-3-1 | openai/gpt-5.4                                | HTTPStatusError: Client error '402 Payment Required' for url 'https
+ERROR      | openrouter-4-1 | inception/mercury-2                           | HTTPStatusError: Client error '402 Payment Required' for url 'https
+ERROR      | openrouter-5-1 | google/gemini-3.1-flash-lite-preview          | HTTPStatusError: Client error '402 Payment Required' for url 'https
+ERROR      | openrouter-6-1 | qwen/qwen3.5-35b-a3b                          | HTTPStatusError: Client error '402 Payment Required' for url 'https
+------------------------------------------------------------------------------------------
+Summary: OK=2, RATE_LIMIT=2, ERROR=6, TOTAL=10

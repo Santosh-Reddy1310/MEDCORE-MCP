@@ -76,7 +76,7 @@ medcore-mcp/
 ├── app.py                      # Streamlit web UI
 ├── requirements.txt            # Python dependencies
 ├── .env.local                  # Groq API key (create this)
-├── verify_setup.py            # Setup verification script
+├── health_check.py            # Production health verification
 │
 ├── db/
 │   ├── setup_db.py            # Database initialization
@@ -175,10 +175,10 @@ SQLite database automatically created at `db/hospital.db` with:
 
 ## 🧪 Verification
 
-Run the setup verification script:
+Run the production health check:
 
 ```bash
-python verify_setup.py
+python health_check.py
 ```
 
 This checks:
@@ -268,8 +268,8 @@ This project is provided as-is for educational and demonstration purposes.
 ## 🎉 Ready to Start?
 
 ```bash
-# Verify setup
-python verify_setup.py
+# Verify deployment readiness
+python health_check.py
 
 # Run the application
 streamlit run app.py

@@ -1,4 +1,8 @@
-mcp
-groq
-streamlit
-python-dotenv
+mcp==1.26.0
+groq==1.0.0
+streamlit==1.55.0
+python-dotenv==1.2.2
+httpx==0.28.1
+anyio==4.12.1
+pydantic==2.12.5
+tenacity==9.1.4

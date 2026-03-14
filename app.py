@@ -5,12 +5,72 @@ from datetime import datetime
 import sqlite3
 from dotenv import load_dotenv
 
-load_dotenv(".env.local")
+# Load environment variables with absolute paths FIRST
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+ENV_LOCAL_PATH = os.path.join(PROJECT_ROOT, ".env.local")
+ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 
+# Ensure environment is loaded before any imports that depend on it
+load_dotenv(ENV_LOCAL_PATH, override=True)
+load_dotenv(ENV_PATH, override=True)
+
+def _has_any_ai_provider_key() -> bool:
+    direct_keys = [
+        os.getenv("GROQ_API_KEY"),
+        os.getenv("GEMINI_API_KEY"),
+        os.getenv("OPENROUTER_API_KEY"),
+    ]
+    if any(k and k.strip() for k in direct_keys):
+        return True
+
+    csv_keys = [
+        os.getenv("GROQ_API_KEYS", ""),
+        os.getenv("GEMINI_API_KEYS", ""),
+        os.getenv("OPENROUTER_API_KEYS", ""),
+    ]
+    for value in csv_keys:
+        if any(part.strip() for part in value.split(",")):
+            return True
+
+    for name, value in os.environ.items():
+        if name.startswith(("GROQ_API_KEY_", "GEMINI_API_KEY_", "OPENROUTER_API_KEY_")) and value.strip():
+            return True
+
+    return False
+
+
+# Verify provider credentials are loaded.
+if not _has_any_ai_provider_key():
+    st.error("❌ **Configuration Error**: no AI provider API key found in environment")
+    st.stop()
+
+# Add utils path
+sys.path.append(os.path.join(os.path.dirname(__file__), "utils"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "client"))
+
+# Import utilities
+try:
+    from db_init import initialize_database, check_database_exists
+except ImportError:
+    # Fallback if utils not available
+    def check_database_exists():
+        db_path = os.path.join(os.path.dirname(__file__), "db", "hospital.db")
+        return os.path.exists(db_path)
+    
+    def initialize_database(populate=True):
+        return False
+
 from ai_client import ask_sync
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "db", "hospital.db")
+
+# Auto-initialize database on startup if needed
+if not check_database_exists():
+    with st.spinner("🔄 Initializing hospital database..."):
+        if initialize_database(populate=True):
+            st.success("✅ Database initialized successfully!")
+        else:
+            st.error("❌ Failed to initialize database. Please run `python db/setup_db.py` manually.")
 
 st.set_page_config(
     page_title="MedCore MCP",
@@ -962,13 +1022,9 @@ if True:
             label_visibility="collapsed",
         )
         
-        col_send, col_clear, col_space = st.columns([1, 1, 6])
+        col_send, col_space = st.columns([1, 7])
         with col_send:
             send = st.button("↑  SEND", key="send_btn", use_container_width=True)
-        with col_clear:
-            if st.button("✕  CLEAR", key="clear_btn", use_container_width=True):
-                st.session_state.messages = []
-                st.rerun()
         
         st.markdown("</div>", unsafe_allow_html=True)
         
@@ -993,118 +1049,12 @@ if True:
                 </div>
                 """, unsafe_allow_html=True)
                 history = st.session_state.messages[-6:-1] if len(st.session_state.messages) > 1 else []
-                response = ask_sync(query, history)
+                try:
+                    response = ask_sync(query, history)
+                except Exception as e:
+                    response = f"❌ **Error**: Failed to connect to hospital data server.\n\nDetails: `{type(e).__name__}: {str(e)}`\n\nPlease ensure the database and MCP server are set up correctly."
             st.session_state.messages.append({"role": "assistant", "content": response})
             st.rerun()
-        
-        # Remove the old chat interface section that was here
-        st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div style="
-            margin: 32px auto 0 auto;
-            max-width: 900px;
-            padding: 20px;
-            background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(15, 23, 42, 0.8) 100%);
-            border: 1.5px solid rgba(59, 130, 246, 0.3);
-            border-radius: 16px;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 8px 40px rgba(59, 130, 246, 0.2);
-            animation: slide-up 0.8s ease;
-        ">
-            <div style="
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                margin-bottom: 16px;
-                padding-bottom: 12px;
-                border-bottom: 1px solid rgba(59, 130, 246, 0.15);
-            ">
-                <div style="
-                    width: 8px;
-                    height: 32px;
-                    background: linear-gradient(180deg, #8B5CF6 0%, #7C3AED 100%);
-                    border-radius: 4px;
-                    box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
-                "></div>
-                <span style="
-                    font-family: 'Space Grotesk', sans-serif;
-                    font-size: 1.1rem;
-                    font-weight: 700;
-                    color: #F1F5F9;
-                    letter-spacing: 0.02em;
-                ">Ask AI Assistant</span>
-                <span style="
-                    font-family: 'IBM Plex Mono', monospace;
-                    font-size: 0.62rem;
-                    color: #A78BFA;
-                    background: rgba(167, 139, 250, 0.15);
-                    padding: 3px 8px;
-                    border-radius: 4px;
-                    border: 1px solid rgba(167, 139, 250, 0.3);
-                    letter-spacing: 0.08em;
-                    font-weight: 600;
-                ">POWERED BY GROQ</span>
-            </div>
-            <div style="
-                font-family: 'IBM Plex Mono', monospace;
-                font-size: 0.7rem;
-                color: #64748B;
-                margin-bottom: 12px;
-                letter-spacing: 0.02em;
-            ">Try these example queries:</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Example query buttons in a centered container
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            example_queries = [
-                ("🚨", "Show all critical patients", "Show me all critical patients"),
-                ("🏥", "Which wards have free beds?", "Which wards have free beds?"),
-                ("📊", "Hospital occupancy rate", "What is the hospital occupancy rate?"),
-                ("⚕", "Available doctors now", "List all available doctors"),
-            ]
-            
-            cols = st.columns(2)
-            for idx, (icon, label, query) in enumerate(example_queries):
-                with cols[idx % 2]:
-                    if st.button(f"{icon} {label}", key=f"example_{idx}", use_container_width=True):
-                        st.session_state.page = "AI Assistant"
-                        st.session_state.pending_query = query
-                        st.rerun()
-
-            # Custom query input with form for Enter key support
-            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-            st.markdown("""
-            <div style="
-                font-family: 'IBM Plex Mono', monospace;
-                font-size: 0.68rem;
-                color: #94A3B8;
-                text-align: center;
-                margin-bottom: 10px;
-                letter-spacing: 0.04em;
-            ">Or type your own question:</div>
-            """, unsafe_allow_html=True)
-            
-            with st.form(key="dashboard_chat_form", clear_on_submit=True):
-                custom_query = st.text_input(
-                    "custom_query",
-                    placeholder="e.g., How many patients are in the ICU? (Press Enter to ask)",
-                    key="dashboard_custom_query_input",
-                    label_visibility="collapsed"
-                )
-                
-                col_left, col_center, col_right = st.columns([1.5, 1, 1.5])
-                with col_center:
-                    submitted = st.form_submit_button("🤖 Ask AI", use_container_width=True, type="primary")
-                
-                if submitted and custom_query and custom_query.strip():
-                    st.session_state.page = "AI Assistant"
-                    st.session_state.pending_query = custom_query.strip()
-                    st.rerun()
-
-        st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
 
     else:
         st.markdown("""

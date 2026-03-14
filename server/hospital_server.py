@@ -1,22 +1,35 @@
 import sqlite3
 import os
 import json
+import sys
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp import types
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "hospital.db")
 
+# Ensure absolute path
+if not os.path.isabs(DB_PATH):
+    DB_PATH = os.path.abspath(DB_PATH)
+
 app = Server("medcore-hospital-server")
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get database connection with error handling."""
+    try:
+        if not os.path.exists(DB_PATH):
+            raise FileNotFoundError(f"Database file not found: {DB_PATH}. Please run 'python db/setup_db.py' to initialize.")
+        
+        conn = sqlite3.connect(DB_PATH, timeout=10.0)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except Exception as e:
+        raise RuntimeError(f"Database connection failed: {str(e)}")
 
 
 def rows_to_list(rows):
+    """Convert database rows to list of dictionaries."""
     return [dict(row) for row in rows]
 
 
@@ -37,6 +50,7 @@ async def list_tools() -> list[types.Tool]:
                     "status": {"type": "string", "description": "Filter by patient status"},
                     "limit": {"type": "integer", "description": "Limit number of results (default: 50)"},
                 },
+                "required": [],
             },
         ),
         types.Tool(
@@ -63,14 +77,14 @@ async def list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="get_all_doctors",
-            description="Get all doctors. Optionally filter by specialization or department.",
+            description="Get all doctors. Optionally filter by specialization or department. For only available doctors, use get_available_doctors.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "specialization": {"type": "string", "description": "Filter by specialization"},
+                    "specialization": {"type": "string", "description": "Filter by specialization (e.g., Cardiology, Pediatrics)"},
                     "department": {"type": "string", "description": "Filter by department name"},
-                    "available_only": {"type": "boolean", "description": "Show only available doctors"},
                 },
+                "required": [],
             },
         ),
         types.Tool(
@@ -98,6 +112,7 @@ async def list_tools() -> list[types.Tool]:
                     "status": {"type": "string", "description": "Filter by appointment status"},
                     "limit": {"type": "integer", "description": "Limit number of results (default: 50)"},
                 },
+                "required": [],
             },
         ),
         types.Tool(
@@ -137,6 +152,142 @@ async def list_tools() -> list[types.Tool]:
             description="Get summary of all wards with occupancy and patient count.",
             inputSchema={"type": "object", "properties": {}},
         ),
+        types.Tool(
+            name="get_doctor_by_name",
+            description="Get doctor details by full or partial doctor name.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Doctor name or partial match"},
+                },
+                "required": ["name"],
+            },
+        ),
+        types.Tool(
+            name="get_doctors_by_experience",
+            description="Get doctors with at least a minimum number of years of experience. Optional filters by department/specialization and availability.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "min_years": {"type": "integer", "description": "Minimum years of experience"},
+                    "department": {"type": "string", "description": "Optional department filter"},
+                    "specialization": {"type": "string", "description": "Optional specialization filter"},
+                    "available_only": {
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "string", "enum": ["true", "false", "1", "0", "yes", "no"]}
+                        ],
+                        "description": "Optional availability filter"
+                    },
+                },
+                "required": ["min_years"],
+            },
+        ),
+        types.Tool(
+            name="get_appointments_by_doctor_name",
+            description="Get appointments for a doctor by doctor name. Optional date and status filters.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doctor_name": {"type": "string", "description": "Doctor full/partial name"},
+                    "date": {"type": "string", "description": "Optional date filter (YYYY-MM-DD)"},
+                    "status": {"type": "string", "description": "Optional status filter"},
+                    "limit": {"type": "integer", "description": "Limit number of rows (default: 50)"},
+                },
+                "required": ["doctor_name"],
+            },
+        ),
+        types.Tool(
+            name="get_appointments_by_patient_id",
+            description="Get appointments for a given patient ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "patient_id": {"type": "integer", "description": "Patient ID"},
+                    "limit": {"type": "integer", "description": "Limit number of rows (default: 50)"},
+                },
+                "required": ["patient_id"],
+            },
+        ),
+        types.Tool(
+            name="get_recent_admissions",
+            description="Get patients admitted in the last N days.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer", "description": "Number of days lookback (default: 3)"},
+                    "ward": {"type": "string", "description": "Optional ward filter"},
+                    "limit": {"type": "integer", "description": "Limit number of rows (default: 50)"},
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="get_department_overview",
+            description="Get operational overview by department including doctor counts, available doctors, and active patient load.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "department": {"type": "string", "description": "Optional department filter"},
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="get_appointments_summary",
+            description="Get appointment utilization metrics with counts by status and overall completion/cancellation rate.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="get_patients_by_condition",
+            description="Get patients by diagnosis keyword or condition pattern (e.g., cancer, cardiac, respiratory, trauma).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "condition": {"type": "string", "description": "Condition keyword to search in diagnosis"},
+                    "status": {"type": "string", "description": "Optional status filter"},
+                    "limit": {"type": "integer", "description": "Limit number of rows (default: 50)"},
+                },
+                "required": ["condition"],
+            },
+        ),
+        types.Tool(
+            name="get_patients_by_doctor_name",
+            description="Get all patients currently being treated by a doctor specified by name. Use this when asking 'which patients is Dr. X treating?' or similar queries.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doctor_name": {"type": "string", "description": "Doctor name (full or partial match)"},
+                    "status": {"type": "string", "description": "Optional patient status filter (admitted, critical, post-op, discharged)"},
+                    "limit": {"type": "integer", "description": "Limit number of rows (default: 50)"},
+                },
+                "required": ["doctor_name"],
+            },
+        ),
+        types.Tool(
+            name="get_patients_by_department",
+            description="Get all patients being treated by doctors in a specific department. Use for queries like 'show me Cardiology patients' or 'patients in Oncology'.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "department": {"type": "string", "description": "Department name (e.g., Cardiology, Oncology, Neurology, Pediatrics, Surgery, Emergency)"},
+                    "status": {"type": "string", "description": "Optional patient status filter"},
+                    "limit": {"type": "integer", "description": "Limit number of rows (default: 50)"},
+                },
+                "required": ["department"],
+            },
+        ),
+        types.Tool(
+            name="get_todays_appointments",
+            description="Get all appointments scheduled for today. Optionally filter by status.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "description": "Optional status filter (scheduled, completed, cancelled)"},
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -163,7 +314,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             limit = arguments.get("limit", 50)
             query += f" LIMIT {limit}"
             cursor.execute(query, params)
-            result = {"patients": rows_to_list(cursor.fetchall()), "total": cursor.rowcount}
+            rows = cursor.fetchall()
+            result = {"patients": rows_to_list(rows), "total": len(rows)}
 
         elif name == "get_patient_by_id":
             cursor.execute(
@@ -191,8 +343,6 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             if arguments.get("department"):
                 query += " AND department = ?"
                 params.append(arguments["department"])
-            if arguments.get("available_only"):
-                query += " AND available = 1"
             cursor.execute(query, params)
             result = {"doctors": rows_to_list(cursor.fetchall())}
 
@@ -323,6 +473,230 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 ward_data["occupancy_rate"] = round((ward_data["occupied_beds"] / ward_data["total_beds"]) * 100, 1) if ward_data["total_beds"] else 0
                 wards.append(ward_data)
             result = {"wards": wards}
+
+        elif name == "get_doctor_by_name":
+            q = f"%{arguments['name']}%"
+            cursor.execute(
+                """
+                SELECT * FROM doctors
+                WHERE name LIKE ?
+                ORDER BY experience_years DESC, name ASC
+                """,
+                (q,)
+            )
+            rows = cursor.fetchall()
+            result = {"doctors": rows_to_list(rows), "count": len(rows)}
+
+        elif name == "get_doctors_by_experience":
+            query = "SELECT * FROM doctors WHERE experience_years >= ?"
+            params = [arguments["min_years"]]
+            if arguments.get("department"):
+                query += " AND department = ?"
+                params.append(arguments["department"])
+            if arguments.get("specialization"):
+                query += " AND specialization = ?"
+                params.append(arguments["specialization"])
+
+            available_only = arguments.get("available_only")
+            if isinstance(available_only, str):
+                available_only = available_only.strip().lower() in ("true", "1", "yes")
+            if available_only is True:
+                query += " AND available = 1"
+
+            query += " ORDER BY experience_years DESC, name ASC"
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            result = {"doctors": rows_to_list(rows), "count": len(rows)}
+
+        elif name == "get_appointments_by_doctor_name":
+            query = """
+                SELECT a.*, p.name as patient_name, d.name as doctor_name
+                FROM appointments a
+                LEFT JOIN patients p ON a.patient_id = p.id
+                LEFT JOIN doctors d ON a.doctor_id = d.id
+                WHERE d.name LIKE ?
+            """
+            params = [f"%{arguments['doctor_name']}%"]
+            if arguments.get("date"):
+                query += " AND a.date = ?"
+                params.append(arguments["date"])
+            if arguments.get("status"):
+                query += " AND a.status = ?"
+                params.append(arguments["status"])
+            limit = arguments.get("limit", 50)
+            query += f" ORDER BY a.date, a.time LIMIT {limit}"
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            result = {"appointments": rows_to_list(rows), "count": len(rows)}
+
+        elif name == "get_appointments_by_patient_id":
+            query = """
+                SELECT a.*, p.name as patient_name, d.name as doctor_name
+                FROM appointments a
+                LEFT JOIN patients p ON a.patient_id = p.id
+                LEFT JOIN doctors d ON a.doctor_id = d.id
+                WHERE a.patient_id = ?
+                ORDER BY a.date, a.time
+            """
+            limit = arguments.get("limit", 50)
+            cursor.execute(query + f" LIMIT {limit}", (arguments["patient_id"],))
+            rows = cursor.fetchall()
+            result = {"appointments": rows_to_list(rows), "count": len(rows)}
+
+        elif name == "get_recent_admissions":
+            days = arguments.get("days", 3)
+            query = """
+                SELECT p.*, d.name as doctor_name, d.department
+                FROM patients p
+                LEFT JOIN doctors d ON p.doctor_id = d.id
+                WHERE date(p.admission_date) >= date('now', '-' || ? || ' day')
+            """
+            params = [days]
+            if arguments.get("ward"):
+                query += " AND p.ward = ?"
+                params.append(arguments["ward"])
+            query += " ORDER BY p.admission_date DESC"
+            limit = arguments.get("limit", 50)
+            cursor.execute(query + f" LIMIT {limit}", params)
+            rows = cursor.fetchall()
+            result = {"patients": rows_to_list(rows), "count": len(rows), "days": days}
+
+        elif name == "get_department_overview":
+            query = """
+                SELECT
+                    d.department,
+                    COUNT(DISTINCT d.id) as total_doctors,
+                    SUM(CASE WHEN d.available = 1 THEN 1 ELSE 0 END) as available_doctors,
+                    COUNT(DISTINCT p.id) as active_patients
+                FROM doctors d
+                LEFT JOIN patients p ON p.doctor_id = d.id AND p.status != 'discharged'
+                WHERE 1=1
+            """
+            params = []
+            if arguments.get("department"):
+                query += " AND d.department = ?"
+                params.append(arguments["department"])
+            query += " GROUP BY d.department ORDER BY active_patients DESC, d.department ASC"
+            cursor.execute(query, params)
+            rows = rows_to_list(cursor.fetchall())
+            for row in rows:
+                total = row["total_doctors"] or 0
+                available = row["available_doctors"] or 0
+                row["availability_percent"] = round((available / total) * 100, 1) if total else 0
+            result = {"departments": rows, "count": len(rows)}
+
+        elif name == "get_appointments_summary":
+            cursor.execute(
+                """
+                SELECT status, COUNT(*) as total
+                FROM appointments
+                GROUP BY status
+                ORDER BY status
+                """
+            )
+            status_rows = rows_to_list(cursor.fetchall())
+            counts = {r["status"]: r["total"] for r in status_rows}
+            total = sum(counts.values())
+            completed = counts.get("completed", 0)
+            cancelled = counts.get("cancelled", 0)
+            result = {
+                "summary": {
+                    "total_appointments": total,
+                    "scheduled": counts.get("scheduled", 0),
+                    "completed": completed,
+                    "cancelled": cancelled,
+                    "completion_rate_percent": round((completed / total) * 100, 1) if total else 0,
+                    "cancellation_rate_percent": round((cancelled / total) * 100, 1) if total else 0,
+                },
+                "by_status": status_rows,
+            }
+
+        elif name == "get_patients_by_condition":
+            condition = arguments["condition"].strip().lower()
+            condition_map = {
+                "cardiac": ["cardiac", "heart", "coronary", "myocardial"],
+                "respiratory": ["respiratory", "pneumonia", "copd", "asthma", "pulmonary", "ards"],
+                "neurological": ["neuro", "stroke", "parkinson", "alzheimer", "glioblastoma"],
+                "infectious": ["infection", "sepsis", "dengue", "tuberculosis", "viral"],
+                "trauma": ["trauma", "fracture", "injury", "burn"],
+                "cancer": ["cancer", "carcinoma", "leukemia", "lymphoma", "tumor", "oncology"],
+            }
+
+            keywords = condition_map.get(condition, [condition])
+            query = """
+                SELECT p.*, d.name as doctor_name, d.department
+                FROM patients p
+                LEFT JOIN doctors d ON p.doctor_id = d.id
+                WHERE (
+            """
+            query += " OR ".join(["LOWER(p.diagnosis) LIKE ?" for _ in keywords])
+            query += ")"
+            params = [f"%{k}%" for k in keywords]
+            if arguments.get("status"):
+                query += " AND p.status = ?"
+                params.append(arguments["status"])
+            query += " ORDER BY p.admission_date DESC"
+            limit = arguments.get("limit", 50)
+            cursor.execute(query + f" LIMIT {limit}", params)
+            rows = cursor.fetchall()
+            result = {"patients": rows_to_list(rows), "count": len(rows), "condition": condition, "keywords": keywords}
+
+        elif name == "get_patients_by_doctor_name":
+            query = """
+                SELECT p.*, d.name as doctor_name, d.specialization, d.department, d.contact as doctor_contact
+                FROM patients p
+                JOIN doctors d ON p.doctor_id = d.id
+                WHERE d.name LIKE ?
+            """
+            params = [f"%{arguments['doctor_name']}%"]
+            if arguments.get("status"):
+                query += " AND p.status = ?"
+                params.append(arguments["status"])
+            else:
+                query += " AND p.status != 'discharged'"
+            query += " ORDER BY p.status DESC, p.admission_date DESC"
+            limit = arguments.get("limit", 50)
+            cursor.execute(query + f" LIMIT {limit}", params)
+            rows = cursor.fetchall()
+            result = {"patients": rows_to_list(rows), "count": len(rows), "doctor_name_query": arguments['doctor_name']}
+
+        elif name == "get_patients_by_department":
+            query = """
+                SELECT p.*, d.name as doctor_name, d.specialization, d.department
+                FROM patients p
+                JOIN doctors d ON p.doctor_id = d.id
+                WHERE d.department LIKE ?
+            """
+            params = [f"%{arguments['department']}%"]
+            if arguments.get("status"):
+                query += " AND p.status = ?"
+                params.append(arguments["status"])
+            else:
+                query += " AND p.status != 'discharged'"
+            query += " ORDER BY p.status DESC, p.admission_date DESC"
+            limit = arguments.get("limit", 50)
+            cursor.execute(query + f" LIMIT {limit}", params)
+            rows = cursor.fetchall()
+            result = {"patients": rows_to_list(rows), "count": len(rows), "department": arguments['department']}
+
+        elif name == "get_todays_appointments":
+            from datetime import date
+            today = date.today().isoformat()
+            query = """
+                SELECT a.*, p.name as patient_name, d.name as doctor_name, d.specialization
+                FROM appointments a
+                LEFT JOIN patients p ON a.patient_id = p.id
+                LEFT JOIN doctors d ON a.doctor_id = d.id
+                WHERE a.date = ?
+            """
+            params = [today]
+            if arguments.get("status"):
+                query += " AND a.status = ?"
+                params.append(arguments["status"])
+            query += " ORDER BY a.time ASC"
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            result = {"appointments": rows_to_list(rows), "count": len(rows), "date": today}
 
         else:
             result = {"error": f"Unknown tool: {name}"}
