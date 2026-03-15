@@ -11,6 +11,7 @@ A comprehensive hospital management system powered by Model Context Protocol (MC
 - **👥 Patient Management**: Track patients, diagnoses, and assignments
 - **📅 Appointment System**: Schedule and manage appointments
 - **📈 Analytics**: Hospital statistics and trends
+- **💸 Free-Tier First**: Provider fallback is optimized for free-tier usage
 
 ## 🚀 Quick Start
 
@@ -142,9 +143,17 @@ Create `.env.local` in project root:
 
 ```
 GROQ_API_KEY = gsk_YOUR_API_KEY_HERE
+GROQ_API_KEY_2 = gsk_YOUR_SECOND_KEY_HERE
+GEMINI_API_KEY = YOUR_GEMINI_KEY
+OPENROUTER_API_KEY = YOUR_OPENROUTER_KEY
+FREE_TIER_ONLY = true
+OPENROUTER_MODELS = qwen/qwen3-14b,meta-llama/llama-3.3-70b-instruct,google/gemma-3-27b-it
 ```
 
 Get your API key from [console.groq.com](https://console.groq.com)
+
+For Streamlit Cloud, do not upload `.env.local`; use app Secrets instead.
+Template: `docs/STREAMLIT_SECRETS_TEMPLATE.toml`
 
 ### Database
 
@@ -195,9 +204,30 @@ This checks:
 |-------|----------|
 | "GROQ_API_KEY not found" | Create `.env.local` with your API key |
 | "Database not found" | Run `python db/setup_db.py` |
+| "Failed to initialize database" or `ImportError: cannot import name 'insert_sample_data'` on Streamlit Cloud | Pull latest `main` and redeploy. This was fixed in `utils/db_init.py` |
+| "Rate Limit — retrying shortly" | Free-tier limit reached temporarily. Add more Groq keys (`GROQ_API_KEY_2`, `GROQ_API_KEY_3`) and retry |
+| OpenRouter `402 Payment Required` | Use only free models in `OPENROUTER_MODELS`; keep `FREE_TIER_ONLY=true` |
 | "Port 8501 in use" | Use `streamlit run app.py --server.port 8502` |
 | "Import error" | Run `pip install -r requirements.txt` |
 | "Connection refused" | Ensure MCP server can start (check Python path) |
+
+## ⚠️ Issues We Faced And Fixes
+
+1. Streamlit Cloud DB init failed on first boot due to an import mismatch.
+    Fix: `utils/db_init.py` now supports both legacy `insert_sample_data` and the current `seed_*` functions.
+2. Provider fallbacks sometimes selected paid OpenRouter models and returned `402`.
+    Fix: `FREE_TIER_ONLY=true` behavior now filters likely paid models.
+3. Free-tier Groq keys frequently hit per-minute limits.
+    Fix: add additional Groq keys (`GROQ_API_KEY_2`, `GROQ_API_KEY_3`) and keep free-model fallback configured.
+4. Secrets leaked in docs during early deployment attempts.
+    Fix: docs were sanitized; use placeholders in repo and real values only in Streamlit Secrets.
+
+## ☁️ Streamlit Cloud Notes
+
+1. Use `app.py` as the main file.
+2. Configure Secrets from `docs/STREAMLIT_SECRETS_TEMPLATE.toml`.
+3. Reboot the app after changing secrets.
+4. SQLite is local to the app container, so data can be reset after rebuild/restart.
 
 ## 📚 Documentation
 
